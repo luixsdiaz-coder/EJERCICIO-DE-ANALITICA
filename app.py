@@ -16,7 +16,10 @@ uploaded_file = st.sidebar.file_uploader("Sube tu archivo Excel o CSV", type=['c
 
 if uploaded_file is not None:
     # Leer el archivo
-    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+    if uploaded_file.name.endswith('.csv'):
+    df = pd.read_csv(uploaded_file, sep=';')
+else:
+    df = pd.read_excel(uploaded_file)
     
     # --- CORRECCIÓN DE COLUMNAS (Para evitar el KeyError) ---
     # Esto pone todos los nombres en minúsculas y quita espacios vacíos
