@@ -91,3 +91,37 @@ if uploaded_file is not None:
 
 else:
     st.info("👋 Sube tu archivo CSV (separado por ;) en la barra lateral para iniciar.")
+
+# --- 6. RADIOGRAFÍA DETALLADA POR VARIABLE ---
+        st.divider()
+        st.subheader("🔍 Análisis Profundo de Variables")
+        st.markdown("Selecciona una variable para ver cómo se distribuye realmente entre los contratados.")
+        
+        # Lista de variables detectadas en el archivo
+        columnas_interes = [c for c in features if c in df.columns]
+        var_analizar = st.selectbox("Variable a inspeccionar:", columnas_interes)
+        
+        df_contratados = df[df['hiring_decision'] == 1] # Filtramos solo los que entraron
+        
+        fig_dist = px.histogram(df_contratados, 
+                               x=var_analizar, 
+                               color='gender', 
+                               barmode='group',
+                               color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80'},
+                               text_auto=True, 
+                               title=f"Distribución de {var_analizar.upper()} en personal contratado")
+        
+        fig_dist.update_layout(height=500)
+        st.plotly_chart(fig_dist, use_container_width=True)
+
+        # --- 7. CONCLUSIÓN AUTOMÁTICA ---
+        st.sidebar.success("✅ Análisis Completo")
+        st.sidebar.markdown(f"""
+        **Resumen de Auditoría:**
+        * Precisión Mujeres: {acc_m:.1%}
+        * Precisión Hombres: {acc_h:.1%}
+        * La variable más influyente para ellas es: **{imp_mujeres.sort_values('Peso', ascending=False).iloc[0]['Var']}**
+        """)
+
+    else:
+        st.error(f"No encontré las columnas necesarias. El sistema ve: {list(df.columns)}")
