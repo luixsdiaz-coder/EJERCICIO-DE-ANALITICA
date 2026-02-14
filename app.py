@@ -15,14 +15,13 @@ st.sidebar.header("📂 Configuración de Datos")
 uploaded_file = st.sidebar.file_uploader("Sube tu archivo Excel o CSV", type=['csv', 'xlsx'])
 
 if uploaded_file is not None:
-    # Leer el archivo
+    # --- CORRECCIÓN DE LECTURA (Separador ;) ---
     if uploaded_file.name.endswith('.csv'):
-    df = pd.read_csv(uploaded_file, sep=';')
-else:
-    df = pd.read_excel(uploaded_file)
+        df = pd.read_csv(uploaded_file, sep=';')
+    else:
+        df = pd.read_excel(uploaded_file)
     
-    # --- CORRECCIÓN DE COLUMNAS (Para evitar el KeyError) ---
-    # Esto pone todos los nombres en minúsculas y quita espacios vacíos
+    # --- LIMPIEZA DE COLUMNAS ---
     df.columns = df.columns.str.strip().str.lower()
     
     # Definimos las variables buscando sus nombres en minúsculas
@@ -34,15 +33,19 @@ else:
     if 'gender' in df.columns and 'hiring_decision' in df.columns:
         
         def calcular_importancia(data, genero):
-            df_gen = data[data['gender'].str.lower() == genero].copy()
+            # Filtrar por género de forma segura
+            df_gen = data[data['gender'].astype(str).str.lower() == genero].copy()
             if len(df_gen) < 5: return None, 0
             
             # Solo usamos las columnas que sí existan en tu Excel
             columnas_presentes = [f for f in features if f in df.columns]
+            
+            # Convertir variables de texto a números (Dummies)
             X = pd.get_dummies(df_gen[columnas_presentes], drop_first=True)
             y = df_gen['hiring_decision']
             
-            if len(y.unique()) < 2: return None, 0 # Evita error si nadie fue contratado
+            # Asegurar que haya contratados y no contratados para poder entrenar
+            if len(y.unique()) < 2: return None, 0
             
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             model = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -52,7 +55,7 @@ else:
             imp_df = pd.DataFrame({'Var': X.columns, 'Peso': model.feature_importances_})
             return imp_df, acc
 
-        # Ejecutar
+        # Ejecutar cálculos
         imp_mujeres, acc_m = calcular_importancia(df, 'female')
         imp_hombres, acc_h = calcular_importancia(df, 'male')
 
@@ -63,13 +66,28 @@ else:
         c2.metric("Precisión (Modelo Hombres)", f"{acc_h:.1%}")
 
         # GRÁFICO DE IMPORTANCIA
-        if imp_mujeres is not None:
-            st.divider()
-            st.subheader("Variables que más influyen en la contratación")
-            fig = px.bar(imp_mujeres.sort_values('Peso'), x='Peso', y='Var', orientation='h', title="Perfil Femenino")
-            st.plotly_chart(fig, use_container_width=True)
+        st.divider()
+        st.subheader("Variables que más influyen en la contratación")
+        
+        col_graf1, col_graf2 = st.columns(2)
+        
+        with col_graf1:
+            if imp_mujeres is not None:
+                fig_m = px.bar(imp_mujeres.sort_values('Peso'), x='Peso', y='Var', 
+                             orientation='h', title="Perfil Femenino", color_discrete_sequence=['#e07a5f'])
+                st.plotly_chart(fig_m, use_container_width=True)
+            else:
+                st.warning("No hay suficientes datos para el perfil femenino.")
+                
+        with col_graf2:
+            if imp_hombres is not None:
+                fig_h = px.bar(imp_hombres.sort_values('Peso'), x='Peso', y='Var', 
+                             orientation='h', title="Perfil Masculino", color_discrete_sequence=['#3d5a80'])
+                st.plotly_chart(fig_h, use_container_width=True)
+            else:
+                st.warning("No hay suficientes datos para el perfil masculino.")
     else:
-        st.error(f"Error: No encontré las columnas 'gender' o 'hiring_decision'. Tus columnas actuales son: {list(df.columns)}")
+        st.error(f"Columnas no encontradas. El sistema ve: {list(df.columns)}")
 
 else:
-    st.info("👋 Sube tu archivo en la barra lateral para iniciar.")
+    st.info("👋 Sube tu archivo CSV (separado por ;) en la barra lateral para iniciar.")
