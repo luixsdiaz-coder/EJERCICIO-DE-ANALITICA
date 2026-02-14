@@ -6,13 +6,18 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
+# 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Auditoría IA: Equidad de Género", layout="wide")
 
 st.title("📊 Auditoría de Equidad con Inteligencia Artificial")
+st.markdown("""
+Esta aplicación utiliza modelos de **Machine Learning (Random Forest)** para detectar si los criterios de contratación 
+son los mismos para hombres y mujeres. 
+""")
 
-# CARGA DE DATOS
+# 2. CARGA DE DATOS
 st.sidebar.header("📂 Configuración de Datos")
-uploaded_file = st.sidebar.file_uploader("Sube tu archivo Excel o CSV", type=['csv', 'xlsx'])
+uploaded_file = st.sidebar.file_uploader("Sube tu archivo CSV (separado por ;)", type=['csv', 'xlsx'])
 
 if uploaded_file is not None:
     # --- CORRECCIÓN DE LECTURA (Separador ;) ---
@@ -21,107 +26,106 @@ if uploaded_file is not None:
     else:
         df = pd.read_excel(uploaded_file)
     
-    # --- LIMPIEZA DE COLUMNAS ---
+    # --- LIMPIEZA DE COLUMNAS (Pasar a minúsculas y quitar espacios) ---
     df.columns = df.columns.str.strip().str.lower()
     
-    # Definimos las variables buscando sus nombres en minúsculas
-    features = ['age', 'nationality', 'sport', 'score', 'degree', 'international_exp', 
-                'entrepeneur_exp', 'debateclub', 'programming_exp', 'add_languages', 
-                'relevance_of_studies', 'squad']
+    # Variables a analizar
+    features_list = ['age', 'nationality', 'sport', 'score', 'degree', 'international_exp', 
+                    'entrepeneur_exp', 'debateclub', 'programming_exp', 'add_languages', 
+                    'relevance_of_studies', 'squad']
     
-    # Verificar si existen las columnas críticas
+    # Verificar columnas críticas
     if 'gender' in df.columns and 'hiring_decision' in df.columns:
         
         def calcular_importancia(data, genero):
             # Filtrar por género de forma segura
             df_gen = data[data['gender'].astype(str).str.lower() == genero].copy()
-            if len(df_gen) < 5: return None, 0
+            if len(df_gen) < 10: return None, 0
             
-            # Solo usamos las columnas que sí existan en tu Excel
-            columnas_presentes = [f for f in features if f in df.columns]
+            # Identificar qué variables de nuestra lista existen en el archivo
+            columnas_presentes = [f for f in features_list if f in df.columns]
             
-            # Convertir variables de texto a números (Dummies)
+            # Convertir variables de texto a números (Variables Dummies)
             X = pd.get_dummies(df_gen[columnas_presentes], drop_first=True)
             y = df_gen['hiring_decision']
             
-            # Asegurar que haya contratados y no contratados para poder entrenar
+            # Validar que existan ambos casos (contratados y no contratados)
             if len(y.unique()) < 2: return None, 0
             
+            # Entrenamiento del modelo
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             model = RandomForestClassifier(n_estimators=100, random_state=42)
             model.fit(X_train, y_train)
             
             acc = accuracy_score(y_test, model.predict(X_test))
-            imp_df = pd.DataFrame({'Var': X.columns, 'Peso': model.feature_importances_})
-            return imp_df, acc
+            imp_df = pd.DataFrame({'Variable': X.columns, 'Peso': model.feature_importances_})
+            return imp_df.sort_values('Peso', ascending=True), acc
 
-        # Ejecutar cálculos
+        # Ejecutar el modelo para ambos géneros
         imp_mujeres, acc_m = calcular_importancia(df, 'female')
         imp_hombres, acc_h = calcular_importancia(df, 'male')
 
-        # MOSTRAR MÉTRICAS
-        st.subheader("Resultados de Confiabilidad")
-        c1, c2 = st.columns(2)
-        c1.metric("Precisión (Modelo Mujeres)", f"{acc_m:.1%}")
-        c2.metric("Precisión (Modelo Hombres)", f"{acc_h:.1%}")
+        # --- SECCIÓN 1: MÉTRICAS DE CONFIABILIDAD ---
+        st.subheader("🎯 Confiabilidad del Análisis")
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            st.metric("Precisión Modelo Femenino", f"{acc_m:.1%}")
+            st.caption("Qué tan predecible es la contratación de mujeres.")
+        with col_m2:
+            st.metric("Precisión Modelo Masculino", f"{acc_h:.1%}")
+            st.caption("Qué tan predecible es la contratación de hombres.")
 
-        # GRÁFICO DE IMPORTANCIA
+        # --- SECCIÓN 2: COMPARATIVA DE IMPORTANCIA ---
         st.divider()
-        st.subheader("Variables que más influyen en la contratación")
+        st.subheader("⚖️ ¿Qué pesa más al contratar?")
+        st.info("Este gráfico muestra qué tanto influye cada variable en la decisión final de contratar.")
         
-        col_graf1, col_graf2 = st.columns(2)
-        
-        with col_graf1:
+        c1, c2 = st.columns(2)
+        with c1:
             if imp_mujeres is not None:
-                fig_m = px.bar(imp_mujeres.sort_values('Peso'), x='Peso', y='Var', 
-                             orientation='h', title="Perfil Femenino", color_discrete_sequence=['#e07a5f'])
+                fig_m = px.bar(imp_mujeres, x='Peso', y='Variable', orientation='h', 
+                             title="Importancia: Perfil Femenino", color_discrete_sequence=['#e07a5f'])
                 st.plotly_chart(fig_m, use_container_width=True)
             else:
-                st.warning("No hay suficientes datos para el perfil femenino.")
-                
-        with col_graf2:
+                st.warning("Datos insuficientes para el perfil femenino.")
+        
+        with c2:
             if imp_hombres is not None:
-                fig_h = px.bar(imp_hombres.sort_values('Peso'), x='Peso', y='Var', 
-                             orientation='h', title="Perfil Masculino", color_discrete_sequence=['#3d5a80'])
+                fig_h = px.bar(imp_hombres, x='Peso', y='Variable', orientation='h', 
+                             title="Importancia: Perfil Masculino", color_discrete_sequence=['#3d5a80'])
                 st.plotly_chart(fig_h, use_container_width=True)
             else:
-                st.warning("No hay suficientes datos para el perfil masculino.")
-    else:
-        st.error(f"Columnas no encontradas. El sistema ve: {list(df.columns)}")
+                st.warning("Datos insuficientes para el perfil masculino.")
 
-else:
-    st.info("👋 Sube tu archivo CSV (separado por ;) en la barra lateral para iniciar.")
-
-# --- 6. RADIOGRAFÍA DETALLADA POR VARIABLE ---
+        # --- SECCIÓN 3: RADIOGRAFÍA POR VARIABLE ---
         st.divider()
-        st.subheader("🔍 Análisis Profundo de Variables")
-        st.markdown("Selecciona una variable para ver cómo se distribuye realmente entre los contratados.")
+        st.subheader("🔍 Radiografía Detallada")
+        st.markdown("Analiza la distribución de las variables en las personas que **sí fueron contratadas**.")
         
-        # Lista de variables detectadas en el archivo
-        columnas_interes = [c for c in features if c in df.columns]
-        var_analizar = st.selectbox("Variable a inspeccionar:", columnas_interes)
+        columnas_disponibles = [c for c in features_list if c in df.columns]
+        var_seleccionada = st.selectbox("Selecciona una variable para inspeccionar:", columnas_disponibles)
         
-        df_contratados = df[df['hiring_decision'] == 1] # Filtramos solo los que entraron
+        df_contratados = df[df['hiring_decision'] == 1]
         
         fig_dist = px.histogram(df_contratados, 
-                               x=var_analizar, 
+                               x=var_seleccionada, 
                                color='gender', 
                                barmode='group',
                                color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80'},
-                               text_auto=True, 
-                               title=f"Distribución de {var_analizar.upper()} en personal contratado")
+                               text_auto=True,
+                               title=f"Distribución de {var_seleccionada.upper()} en Contratados")
         
-        fig_dist.update_layout(height=500)
         st.plotly_chart(fig_dist, use_container_width=True)
-
-        # --- 7. CONCLUSIÓN AUTOMÁTICA ---
-        st.sidebar.success("✅ Análisis Completo")
-        st.sidebar.markdown(f"""
-        **Resumen de Auditoría:**
-        * Precisión Mujeres: {acc_m:.1%}
-        * Precisión Hombres: {acc_h:.1%}
-        * La variable más influyente para ellas es: **{imp_mujeres.sort_values('Peso', ascending=False).iloc[0]['Var']}**
-        """)
+        
+        # Conclusión automática en la barra lateral
+        st.sidebar.success("✅ Análisis Generado")
+        if imp_mujeres is not None:
+            top_v = imp_mujeres.sort_values('Peso', ascending=False).iloc[0]['Variable']
+            st.sidebar.write(f"Para ellas, lo más importante es: **{top_v}**")
 
     else:
-        st.error(f"No encontré las columnas necesarias. El sistema ve: {list(df.columns)}")
+        st.error(f"Error: No encontré 'gender' o 'hiring_decision'. Columnas detectadas: {list(df.columns)}")
+
+else:
+    st.info("👋 Sube tu archivo CSV o Excel en la barra lateral para comenzar.")
+    st.image("https://streamlit.io/images/brand/streamlit-logo-secondary-colormark-darktext.png", width=200)
