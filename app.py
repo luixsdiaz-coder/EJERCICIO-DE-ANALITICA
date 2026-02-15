@@ -70,12 +70,13 @@ if archivo:
 
     imp_m, imp_h, imp_o = obtener_importancia('female'), obtener_importancia('male'), obtener_importancia('other')
 
-    # --- SECCIÓN II: CAMPANAS DE GAUSS (NUEVA) ---
+    # --- SECCIÓN II: CAMPANAS DE GAUSS SELECCIONADAS ---
     st.divider()
-    st.header("II. Análisis de Distribución Normal (Campanas de Gauss)")
-    st.write("Visualización de la normalidad en el perfil de los contratados para variables críticas.")
+    st.header("II. Análisis de Distribución Normal (Edad y Score)")
+    st.write("Visualización de la campana de Gauss para detectar sesgos de perfil 'estándar'.")
 
-    vars_gauss = ['age', 'add_languages', 'international_exp', 'programming_exp']
+    # Eliminadas las variables de experiencia internacional y programación por solicitud
+    vars_gauss = ['age', 'score']
     
     for var in vars_gauss:
         if var in df_solo_contratados.columns:
@@ -89,25 +90,25 @@ if archivo:
                     x = np.linspace(data_g.min(), data_g.max(), 100)
                     y = norm.pdf(x, mu, std)
                     
-                    # Histograma de base
                     fig_gauss.add_trace(go.Histogram(x=data_g, nbinsx=20, name=f"Datos {g}", 
                                                      marker_color=colores.get(g, '#888'), opacity=0.3, histnorm='probability density'))
-                    # Campana de Gauss
                     fig_gauss.add_trace(go.Scatter(x=x, y=y, mode='lines', name=f"Gauss {g} (μ={mu:.1f})", 
                                                    line=dict(color=colores.get(g, '#888'), width=3)))
 
             fig_gauss.update_layout(title=f"<b>[CAMPANA DE GAUSS] Distribución de {var.upper()}</b>",
-                                    xaxis_title=var.capitalize(), yaxis_title="Densidad de Probabilidad",
+                                    xaxis_title=var.capitalize(), yaxis_title="Densidad",
                                     height=450, barmode='overlay')
             st.plotly_chart(fig_gauss, use_container_width=True)
 
-    # --- SECCIÓN III: IMPORTANCIA IA ---
+    # --- SECCIÓN III: IMPORTANCIA IA (ORDENADA MAYOR A MENOR) ---
     st.divider()
-    st.header("III. Importancia de Variables (Orden Mayor a Menor)")
+    st.header("III. Análisis de Importancia de Variables (Orden Mayor a Menor)")
     list_imps = [i for i in [imp_m, imp_h, imp_o] if i is not None]
     if list_imps:
+        # Orden descendente global (Mayor arriba)
         orden_desc = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=True).reset_index()
         lista_ordenada = orden_desc['Factor'].tolist()
+        
         fig_imp = go.Figure()
         if imp_m is not None:
             m_s = imp_m.set_index('Factor').reindex(lista_ordenada).reset_index().fillna(0)
@@ -118,7 +119,8 @@ if archivo:
         if imp_o is not None:
             o_s = imp_o.set_index('Factor').reindex(lista_ordenada).reset_index().fillna(0)
             fig_imp.add_trace(go.Bar(y=o_s['Factor'], x=o_s['Peso'], name='Otros', orientation='h', marker_color='#98c1d9'))
-        fig_imp.update_layout(title="<b>[BARRAS AGRUPADAS] Jerarquía Técnica IA</b>", barmode='group', height=500)
+        
+        fig_imp.update_layout(title="<b>4. [BARRAS AGRUPADAS] Jerarquía Técnica IA</b>", barmode='group', height=500)
         st.plotly_chart(fig_imp, use_container_width=True)
 
     # --- SECCIÓN IV: RADIOGRAFÍAS INDIVIDUALES ---
@@ -136,7 +138,9 @@ if archivo:
                     if pd.api.types.is_numeric_dtype(df_g[v]):
                         titulo = f"[HISTOGRAMA] {v.upper()} | μ={df_g[v].mean():.1f} | Min={df_g[v].min()} | Max={df_g[v].max()}"
                     else: titulo = f"[BARRAS] {v.upper()}"
-                    st.plotly_chart(px.histogram(df_g, x=v, title=titulo, color_discrete_sequence=[['#e07a5f', '#3d5a80', '#98c1d9'][i]], text_auto=True), use_container_width=True)
+                    st.plotly_chart(px.histogram(df_g, x=v, title=titulo, 
+                                                 color_discrete_sequence=[['#e07a5f', '#3d5a80', '#98c1d9'][i]], 
+                                                 text_auto=True), use_container_width=True)
 
     # --- SECCIÓN V: MEZCLA Y PARETO ---
     st.divider()
@@ -144,18 +148,25 @@ if archivo:
     if list_imps:
         imp_glob = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
         for v in imp_glob['Factor']:
-            stats = df_solo_contratados.groupby('gender')[v].agg(['mean']).reset_index()
-            res_stats = " | ".join([f"{r.gender}: μ={getattr(r, 'mean'):.1f}" for r in stats.itertuples()])
-            st.plotly_chart(px.histogram(df_solo_contratados, x=v, color='gender', barmode='group', title=f"<b>[MEZCLA] {v.upper()}</b> <br><sup>{res_stats}</sup>", color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}, text_auto=True), use_container_width=True)
+            # Agregación para estadísticas en el título de la mezcla
+            if pd.api.types.is_numeric_dtype(df_solo_contratados[v]):
+                stats = df_solo_contratados.groupby('gender')[v].agg(['mean']).reset_index()
+                res_stats = " | ".join([f"{r.gender}: μ={getattr(r, 'mean'):.1f}" for r in stats.itertuples()])
+            else: res_stats = "Categórica"
+            
+            st.plotly_chart(px.histogram(df_solo_contratados, x=v, color='gender', barmode='group', 
+                                         title=f"<b>[MEZCLA] {v.upper()}</b> <br><sup>{res_stats}</sup>", 
+                                         color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}, 
+                                         text_auto=True), use_container_width=True)
         
         imp_glob['Peso_Acum'] = (imp_glob['Peso'].cumsum() / imp_glob['Peso'].sum()) * 100
         fig_p = go.Figure()
         fig_p.add_trace(go.Bar(x=imp_glob['Factor'], y=imp_glob['Peso'], name="Peso", marker_color='#3d5a80'))
         fig_p.add_trace(go.Scatter(x=imp_glob['Factor'], y=imp_glob['Peso_Acum'], name="% Acum", yaxis="y2", line=dict(color="#e07a5f")))
-        fig_p.update_layout(title="<b>[PARETO] Jerarquía Final</b>", yaxis2=dict(overlaying="y", side="right", range=[0,110]))
+        fig_p.update_layout(title="<b>[PARETO] Jerarquía Final de Decisiones</b>", yaxis2=dict(overlaying="y", side="right", range=[0,110]))
         st.plotly_chart(fig_p, use_container_width=True)
 
-    st.caption("Reporte bajo nomenclatura NIIF para la transparencia en Capital Humano.")
+    st.caption("Reporte bajo estándares NIIF. Análisis de Capital Humano y Diversidad.")
 
 else:
-    st.info("Suba su archivo para iniciar la auditoría.")
+    st.info("Por favor, cargue su archivo de datos para iniciar la auditoría.")
