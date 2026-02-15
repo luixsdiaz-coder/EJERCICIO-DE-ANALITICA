@@ -5,23 +5,34 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.ensemble import RandomForestClassifier
 
-# --- 0. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Auditoría Equidad NIIF - Streamlit", layout="wide")
-st.title("📊 Auditoría de Equidad en Reclutamiento (Protocolo NIIF)")
-st.markdown("---")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Estrategia Global - Auditoría de Talento", layout="wide")
+
+st.title("📊 Brief Ejecutivo: Auditoría Dinámica de Contratación")
+st.markdown("""
+**Análisis de Sensibilidad:** Compara el perfil de los candidatos aceptados vs. rechazados para identificar sesgos sistemáticos.
+""")
+st.divider()
 
 # --- 1. CARGA DE DATOS ---
-archivo = st.sidebar.file_uploader("Cargar Base de Datos (CSV o Excel)", type=['csv', 'xlsx'])
+archivo = st.sidebar.file_uploader("Subir base de datos (CSV o Excel)", type=['csv', 'xlsx'])
 
 if archivo:
-    if archivo.name.endswith('.csv'):
-        df = pd.read_csv(archivo, sep=';')
-    else:
-        df = pd.read_excel(archivo)
-    
-    # Estandarización de columnas
+    df = pd.read_csv(archivo, sep=';') if archivo.name.endswith('.csv') else pd.read_excel(archivo)
     df.columns = df.columns.str.lower().str.strip()
     
+    # --- FILTRO DINÁMICO (LA CLAVE) ---
+    st.sidebar.header("🎯 Filtros de Análisis")
+    opcion_hiring = st.sidebar.selectbox(
+        "Ver candidatos por decisión:",
+        options=[1, 0],
+        format_func=lambda x: "CONTRATADOS ✅" if x == 1 else "NO CONTRATADOS ❌"
+    )
+    
+    # Creamos el DataFrame filtrado que alimentará a todas las gráficas
+    df_filtrado = df[df['hiring_decision'] == opcion_hiring].copy()
+    
+    # --- PROCESAMIENTO DE VARIABLES ---
     variables_raiz = ['age', 'sport', 'score', 'international_exp', 'entrepeneur_exp', 
                       'debateclub', 'programming_exp', 'add_languages', 'relevance_of_studies', 'squad']
     
@@ -29,126 +40,85 @@ if archivo:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    if 'hiring_decision' in df.columns:
-        df['hiring_decision'] = pd.to_numeric(df['hiring_decision'], errors='coerce').fillna(0).astype(int)
-
-    df_solo_contratados = df[df['hiring_decision'] == 1].copy()
     colores_dict = {'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}
 
-    # --- I. DIAGNÓSTICO DE EMBUDO Y CONVERSIÓN ---
-    st.header("I. Diagnóstico de Embudo y Conversión")
-    col1, col2, col3 = st.columns(3)
+    # --- SECCIÓN I: DIAGNÓSTICO VISUAL ---
+    st.header(f"I. Perfil de Candidatos ({'Contratados' if opcion_hiring == 1 else 'Rechazados'})")
+    c1, c2 = st.columns(2)
     
-    with col1:
-        # 1. Tasa de Conversión (Funnel)
-        df_funnel = []
-        for g in df['gender'].unique():
-            post = len(df[df['gender'] == g])
-            cont = len(df[(df['gender'] == g) & (df['hiring_decision'] == 1)])
-            df_funnel.append({'Género': g, 'Etapa': 'Postulantes', 'Cantidad': post})
-            df_funnel.append({'Género': g, 'Etapa': 'Contratados', 'Cantidad': cont})
-        st.plotly_chart(px.funnel(df_funnel, x='Cantidad', y='Etapa', color='Género',
-                               title="<b>1. Tasa de Conversión</b>",
-                               color_discrete_map=colores_dict), use_container_width=True)
-
-    with col2:
-        # 2. Distribución de Puntaje (Boxplot) - Mantenemos Score aquí para auditoría visual
-        st.plotly_chart(px.box(df_solo_contratados, x='gender', y='score', color='gender',
-                               title="<b>2. Exigencia de Puntaje (Score)</b>",
+    with c1:
+        # Boxplot Dinámico
+        st.plotly_chart(px.box(df_filtrado, x='gender', y='score', color='gender', 
+                               title="Distribución de Score por Género", 
                                color_discrete_map=colores_dict, points="all"), use_container_width=True)
-
-    with col3:
-        # 3. Porcentaje de Contratados (Pie)
-        st.plotly_chart(px.pie(df_solo_contratados, names='gender', hole=0.4, 
-                               title="<b>3. Distribución Final de Contratados</b>",
+    with c2:
+        # Composición de Género Dinámica
+        st.plotly_chart(px.pie(df_filtrado, names='gender', hole=0.4, 
+                               title="Composición de Género en esta categoría", 
                                color_discrete_map=colores_dict), use_container_width=True)
 
-    # --- II. MATRIZ DE CORRELACIÓN ---
+    # --- SECCIÓN II: RADAR COMPARATIVO ---
     st.divider()
-    st.header("II. Matriz de Correlación")
-    cols_corr = [c for c in variables_raiz if c in df.columns] + ['hiring_decision']
-    corr_matrix = df[cols_corr].corr()
-    st.plotly_chart(px.imshow(corr_matrix, text_auto=".2f", aspect="auto",
-                         title="<b>Heatmap: Relación entre Variables y Contratación</b>",
-                         color_continuous_scale='RdBu_r'), use_container_width=True)
-
-    # --- III. RADAR DE COMPETENCIAS ---
-    st.divider()
-    st.header("III. Radar de Competencias (Perfil de Reclutamiento)")
-    competencias_radar = ['international_exp', 'programming_exp', 'add_languages', 'entrepeneur_exp', 'relevance_of_studies']
-    comp_presentes = [c for c in competencias_radar if c in df_solo_contratados.columns]
+    st.header("II. Radar de Competencias del Grupo Seleccionado")
+    comp_radar = ['international_exp', 'programming_exp', 'add_languages', 'entrepeneur_exp', 'relevance_of_studies']
+    comp_p = [c for c in comp_radar if c in df_filtrado.columns]
     
-    if comp_presentes:
+    if comp_p:
         fig_radar = go.Figure()
-        for g in df_solo_contratados['gender'].unique():
-            df_g = df_solo_contratados[df_solo_contratados['gender'] == g]
+        for g in df_filtrado['gender'].unique():
+            df_g = df_filtrado[df_filtrado['gender'] == g]
             if not df_g.empty:
-                valores = [df_g[c].mean() for c in comp_presentes]
-                valores += [valores[0]]
-                cats = comp_presentes + [comp_presentes[0]]
-                fig_radar.add_trace(go.Scatterpolar(r=valores, theta=[c.upper() for c in cats],
-                                                   fill='toself', name=g.capitalize(),
-                                                   line=dict(color=colores_dict.get(g, '#888'))))
-        fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, df[comp_presentes].max().max()])),
-                                title="<b>Habilidades Promedio (Sin Score)</b>")
-        st.plotly_chart(fig_radar, use_container_width=True)
+                valores = [df_g[c].mean() for c in comp_p] + [df_g[comp_p[0]].mean()]
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=valores, 
+                    theta=[c.upper() for c in comp_p + [comp_p[0]]], 
+                    fill='toself', name=g.capitalize(), 
+                    line=dict(color=colores_dict.get(g, '#888'))
+                ))
+        st.plotly_chart(fig_radar.update_layout(title="Habilidades Promedio"), use_container_width=True)
 
-    # --- IV. JERARQUÍA DE IMPORTANCIA (IA - SIN SCORE) ---
+    # --- SECCIÓN III: JERARQUÍA DE IMPORTANCIA (PARA EL TOTAL DEL DATASET) ---
     st.divider()
-    st.header("IV. Jerarquía de Importancia (Machine Learning)")
-    st.info("Nota: Se ha eliminado la variable 'Score' para identificar los méritos de origen que realmente deciden la contratación.")
+    st.header("III. ¿Qué factores determinan la decisión final? (IA)")
+    st.info("Este cálculo utiliza el dataset completo para entender por qué unos son aceptados y otros no.")
     
     vars_ia = [v for v in variables_raiz if v != 'score' and v in df.columns]
 
-    def obtener_importancia(gen):
-        datos_gen = df[df['gender'] == gen].dropna(subset=['hiring_decision']).copy()
-        if len(datos_gen) < 10 or datos_gen['hiring_decision'].nunique() < 2: return None
-        X = pd.get_dummies(datos_gen[vars_ia].fillna(0), drop_first=True)
-        model = RandomForestClassifier(n_estimators=100, random_state=42).fit(X, datos_gen['hiring_decision'])
-        res = pd.DataFrame({'Factor': X.columns, 'Peso': model.feature_importances_})
-        return res.groupby('Factor')['Peso'].sum().reset_index()
+    def get_imp(gen):
+        d = df[df['gender'] == gen].dropna(subset=['hiring_decision']).copy()
+        if len(d) < 10 or d['hiring_decision'].nunique() < 2: return None
+        X = pd.get_dummies(d[vars_ia].fillna(0), drop_first=True)
+        model = RandomForestClassifier(n_estimators=100, random_state=42).fit(X, d['hiring_decision'])
+        return pd.DataFrame({'Factor': X.columns, 'Peso': model.feature_importances_}).groupby('Factor')['Peso'].sum().reset_index()
 
-    imps = {g: obtener_importancia(g) for g in ['female', 'male', 'other']}
-    list_valid_imps = [v for v in imps.values() if v is not None]
+    imps = {g: get_imp(g) for g in ['female', 'male', 'other']}
+    list_valid = [v for v in imps.values() if v is not None]
 
-    if list_valid_imps:
-        # Orden Global Descendente
-        imp_glob = pd.concat(list_valid_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
-        lista_orden = imp_glob['Factor'].tolist()
-
+    if list_valid:
+        g_imp = pd.concat(list_valid).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
         fig_imp = go.Figure()
         for g, color in colores_dict.items():
             if imps[g] is not None:
-                s = imps[g].set_index('Factor').reindex(lista_orden[::-1]).reset_index().fillna(0)
-                fig_imp.add_trace(go.Bar(y=s['Factor'], x=s['Peso'], name=g.capitalize(), 
-                                              orientation='h', marker_color=color))
-        
-        fig_imp.update_layout(title="<b>Importancia de Variables (Ordenada Globalmente)</b>", barmode='group', height=500)
-        st.plotly_chart(fig_imp, use_container_width=True)
+                s = imps[g].set_index('Factor').reindex(g_imp['Factor'].tolist()[::-1]).reset_index().fillna(0)
+                fig_imp.add_trace(go.Bar(y=s['Factor'], x=s['Peso'], name=g.capitalize(), orientation='h', marker_color=color))
+        st.plotly_chart(fig_imp.update_layout(title="Importancia de Variables (Modelo Global)", barmode='group'), use_container_width=True)
 
-    # --- V. ANÁLISIS DE VARIABLES POR GÉNERO (INDEPENDIENTE) ---
+    # --- SECCIÓN IV: HISTOGRAMAS DINÁMICOS ---
     st.divider()
-    st.header("V. Análisis de Variables por Género (Independiente)")
-    tabs = st.tabs(["🚺 Mujeres", "🚹 Hombres", "⚧ Otros"])
+    st.header("IV. Análisis de Variables Específicas")
+    col_hist1, col_hist2 = st.columns(2)
     
-    for i, g in enumerate(['female', 'male', 'other']):
-        with tabs[i]:
-            if imps[g] is not None:
-                df_g = df_solo_contratados[df_solo_contratados['gender'] == g]
-                # Variables ordenadas por importancia específica de este género
-                vars_ordenadas = imps[g].sort_values('Peso', ascending=False)['Factor']
-                
-                for v in vars_ordenadas:
-                    if v in df_g.columns:
-                        mu, mn, mx = df_g[v].mean(), df_g[v].min(), df_g[v].max()
-                        st.plotly_chart(px.histogram(df_g, x=v, 
-                                           title=f"<b>{v.upper()}</b> | Media: {mu:.2f} | Rango: [{mn} - {mx}]", 
-                                           color_discrete_sequence=[list(colores_dict.values())[i]], 
-                                           text_auto=True), use_container_width=True)
-            else:
-                st.warning(f"Datos insuficientes para el análisis de {g}.")
-
-    st.caption("Reporte generado bajo nomenclatura NIIF para Capital Humano.")
+    # Elegimos las dos variables más importantes para mostrar dinámicamente
+    var1, var2 = g_imp['Factor'].iloc[0], g_imp['Factor'].iloc[1]
+    
+    with col_hist1:
+        st.plotly_chart(px.histogram(df_filtrado, x=var1, color='gender', barmode='group',
+                                   title=f"Distribución de {var1.upper()}", 
+                                   color_discrete_map=colores_dict, text_auto=True), use_container_width=True)
+    with col_hist2:
+        st.plotly_chart(px.histogram(df_filtrado, x=var2, color='gender', barmode='group',
+                                   title=f"Distribución de {var2.upper()}", 
+                                   color_discrete_map=colores_dict, text_auto=True), use_container_width=True)
 
 else:
-    st.info("👋 Bienvenida/o. Por favor, suba el archivo de datos para generar el reporte de auditoría.")
+    st.info("🚀 CSO: Cargue el archivo para activar el análisis dinámico.")
