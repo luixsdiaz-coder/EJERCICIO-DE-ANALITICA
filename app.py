@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from scipy.stats import norm
 from sklearn.ensemble import RandomForestClassifier
 
 # --- 0. CONFIGURACIÓN DE PÁGINA ---
@@ -19,7 +21,7 @@ if archivo:
     
     df.columns = df.columns.str.lower().str.strip()
     
-    # Limpieza: Asegurar que las variables raíz sean numéricas para evitar el TypeError
+    # Limpieza y Conversión Numérica
     variables_raiz = ['age', 'sport', 'score', 'international_exp', 'entrepeneur_exp', 
                       'debateclub', 'programming_exp', 'add_languages', 'relevance_of_studies', 'squad']
     
@@ -54,7 +56,7 @@ if archivo:
                               title="<b>3. [GRÁFICO DE CAJA] Nivel de Exigencia (Scores)</b>",
                               color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}), use_container_width=True)
 
-    # --- FUNCIÓN DE IMPORTANCIA IA ---
+    # --- FUNCIÓN IA ---
     def obtener_importancia(gen):
         datos_gen = df[df['gender'] == gen].dropna(subset=['hiring_decision']).copy()
         if len(datos_gen) < 5 or datos_gen['hiring_decision'].nunique() < 2: return None
@@ -68,16 +70,44 @@ if archivo:
 
     imp_m, imp_h, imp_o = obtener_importancia('female'), obtener_importancia('male'), obtener_importancia('other')
 
-    # --- II. IMPORTANCIA COMPARATIVA (ORDENADA MAYOR A MENOR) ---
+    # --- SECCIÓN II: CAMPANAS DE GAUSS (NUEVA) ---
     st.divider()
-    st.header("II. Análisis de Importancia de Variables (Orden Mayor a Menor)")
+    st.header("II. Análisis de Distribución Normal (Campanas de Gauss)")
+    st.write("Visualización de la normalidad en el perfil de los contratados para variables críticas.")
+
+    vars_gauss = ['age', 'add_languages', 'international_exp', 'programming_exp']
     
+    for var in vars_gauss:
+        if var in df_solo_contratados.columns:
+            fig_gauss = go.Figure()
+            colores = {'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}
+            
+            for g in df_solo_contratados['gender'].unique():
+                data_g = df_solo_contratados[df_solo_contratados['gender'] == g][var].dropna()
+                if len(data_g) > 1:
+                    mu, std = data_g.mean(), data_g.std()
+                    x = np.linspace(data_g.min(), data_g.max(), 100)
+                    y = norm.pdf(x, mu, std)
+                    
+                    # Histograma de base
+                    fig_gauss.add_trace(go.Histogram(x=data_g, nbinsx=20, name=f"Datos {g}", 
+                                                     marker_color=colores.get(g, '#888'), opacity=0.3, histnorm='probability density'))
+                    # Campana de Gauss
+                    fig_gauss.add_trace(go.Scatter(x=x, y=y, mode='lines', name=f"Gauss {g} (μ={mu:.1f})", 
+                                                   line=dict(color=colores.get(g, '#888'), width=3)))
+
+            fig_gauss.update_layout(title=f"<b>[CAMPANA DE GAUSS] Distribución de {var.upper()}</b>",
+                                    xaxis_title=var.capitalize(), yaxis_title="Densidad de Probabilidad",
+                                    height=450, barmode='overlay')
+            st.plotly_chart(fig_gauss, use_container_width=True)
+
+    # --- SECCIÓN III: IMPORTANCIA IA ---
+    st.divider()
+    st.header("III. Importancia de Variables (Orden Mayor a Menor)")
     list_imps = [i for i in [imp_m, imp_h, imp_o] if i is not None]
     if list_imps:
-        # El orden global se calcula para que la variable más importante aparezca arriba (descendente)
         orden_desc = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=True).reset_index()
         lista_ordenada = orden_desc['Factor'].tolist()
-
         fig_imp = go.Figure()
         if imp_m is not None:
             m_s = imp_m.set_index('Factor').reindex(lista_ordenada).reset_index().fillna(0)
@@ -88,72 +118,44 @@ if archivo:
         if imp_o is not None:
             o_s = imp_o.set_index('Factor').reindex(lista_ordenada).reset_index().fillna(0)
             fig_imp.add_trace(go.Bar(y=o_s['Factor'], x=o_s['Peso'], name='Otros', orientation='h', marker_color='#98c1d9'))
-        
-        fig_imp.update_layout(title="<b>4. [BARRAS AGRUPADAS] Importancia IA (Jerarquía Técnica)</b>", barmode='group', height=600)
+        fig_imp.update_layout(title="<b>[BARRAS AGRUPADAS] Jerarquía Técnica IA</b>", barmode='group', height=500)
         st.plotly_chart(fig_imp, use_container_width=True)
 
-    # --- SECCIÓN III: RADIOGRAFÍAS INDIVIDUALES ---
+    # --- SECCIÓN IV: RADIOGRAFÍAS INDIVIDUALES ---
     st.divider()
-    st.header("III. Radiografía de Perfiles de Éxito (Individual)")
-    tab_m, tab_h, tab_o = st.tabs(["🚺 Mujeres", "🚹 Hombres", "⚧ Otros"])
-    
-    def render_perfil(resumen, datos_gen, color, tab):
-        with tab:
-            if resumen is not None:
-                df_exito = datos_gen[datos_gen['hiring_decision']==1].copy()
-                res_ord = resumen.sort_values('Peso', ascending=False)
-                for _, fila in res_ord.iterrows():
-                    var, peso = fila['Factor'], fila['Peso']
-                    # Verificamos si es numérica para sacar estadísticas
-                    if pd.api.types.is_numeric_dtype(df_exito[var]):
-                        v_min = df_exito[var].min()
-                        v_max = df_exito[var].max()
-                        v_mean = df_exito[var].mean()
-                        titulo = f"[HISTOGRAMA] {var.upper()} | Media: {v_mean:.1f} | Min: {v_min} | Max: {v_max}"
-                    else:
-                        titulo = f"[GRÁFICO DE BARRAS] {var.upper()} (Importancia: {peso:.1%})"
-                    
-                    fig = px.histogram(df_exito, x=var, title=titulo, color_discrete_sequence=[color], text_auto=True)
-                    st.plotly_chart(fig, use_container_width=True)
-            else: st.warning("Datos insuficientes.")
+    st.header("IV. Radiografía de Perfiles de Éxito (Individual)")
+    tabs = st.tabs(["🚺 Mujeres", "🚹 Hombres", "⚧ Otros"])
+    for i, g in enumerate(['female', 'male', 'other']):
+        with tabs[i]:
+            res = [imp_m, imp_h, imp_o][i]
+            if res is not None:
+                df_g = df[(df['gender'] == g) & (df['hiring_decision'] == 1)]
+                res_ord = res.sort_values('Peso', ascending=False)
+                for _, f in res_ord.iterrows():
+                    v = f['Factor']
+                    if pd.api.types.is_numeric_dtype(df_g[v]):
+                        titulo = f"[HISTOGRAMA] {v.upper()} | μ={df_g[v].mean():.1f} | Min={df_g[v].min()} | Max={df_g[v].max()}"
+                    else: titulo = f"[BARRAS] {v.upper()}"
+                    st.plotly_chart(px.histogram(df_g, x=v, title=titulo, color_discrete_sequence=[['#e07a5f', '#3d5a80', '#98c1d9'][i]], text_auto=True), use_container_width=True)
 
-    render_perfil(imp_m, df[df['gender']=='female'], '#e07a5f', tab_m)
-    render_perfil(imp_h, df[df['gender']=='male'], '#3d5a80', tab_h)
-    render_perfil(imp_o, df[df['gender']=='other'], '#98c1d9', tab_o)
-
-    # --- SECCIÓN IV: MEZCLA MULTIVARIABLE (ORDENADA Y PROTEGIDA) ---
+    # --- SECCIÓN V: MEZCLA Y PARETO ---
     st.divider()
-    st.header("IV. Relación y Mezcla Multivariable (Orden Mayor a Menor)")
-    
+    st.header("V. Mezcla Multivariable y Pareto Global")
     if list_imps:
-        imp_glob_desc = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
+        imp_glob = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
+        for v in imp_glob['Factor']:
+            stats = df_solo_contratados.groupby('gender')[v].agg(['mean']).reset_index()
+            res_stats = " | ".join([f"{r.gender}: μ={getattr(r, 'mean'):.1f}" for r in stats.itertuples()])
+            st.plotly_chart(px.histogram(df_solo_contratados, x=v, color='gender', barmode='group', title=f"<b>[MEZCLA] {v.upper()}</b> <br><sup>{res_stats}</sup>", color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}, text_auto=True), use_container_width=True)
         
-        for var in imp_glob_desc['Factor']:
-            # Agregación protegida contra tipos no numéricos
-            if pd.api.types.is_numeric_dtype(df_solo_contratados[var]):
-                stats = df_solo_contratados.groupby('gender')[var].agg(['mean', 'min', 'max']).reset_index()
-                resumen_stats = " | ".join([f"{r.gender}: μ={getattr(r, 'mean'):.1f}" for r in stats.itertuples()])
-            else:
-                resumen_stats = "Variable Categórica"
-            
-            fig_mix = px.histogram(df_solo_contratados, x=var, color='gender', barmode='group',
-                                   title=f"<b>[BARRAS AGRUPADAS] {var.upper()}</b> <br><sup>{resumen_stats}</sup>",
-                                   color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'},
-                                   text_auto=True)
-            st.plotly_chart(fig_mix, use_container_width=True)
-
-    # --- SECCIÓN V: PARETO ---
-    st.divider()
-    st.header("V. Análisis de Pareto Global")
-    if list_imps:
-        imp_glob_desc['Peso_Acum'] = (imp_glob_desc['Peso'].cumsum() / imp_glob_desc['Peso'].sum()) * 100
+        imp_glob['Peso_Acum'] = (imp_glob['Peso'].cumsum() / imp_glob['Peso'].sum()) * 100
         fig_p = go.Figure()
-        fig_p.add_trace(go.Bar(x=imp_glob_desc['Factor'], y=imp_glob_desc['Peso'], name="Peso", marker_color='#3d5a80'))
-        fig_p.add_trace(go.Scatter(x=imp_glob_desc['Factor'], y=imp_glob_desc['Peso_Acum'], name="% Acum", yaxis="y2", line=dict(color="#e07a5f")))
-        fig_p.update_layout(title="<b>[PARETO] Jerarquía de Variables</b>", yaxis2=dict(overlaying="y", side="right", range=[0,110]))
+        fig_p.add_trace(go.Bar(x=imp_glob['Factor'], y=imp_glob['Peso'], name="Peso", marker_color='#3d5a80'))
+        fig_p.add_trace(go.Scatter(x=imp_glob['Factor'], y=imp_glob['Peso_Acum'], name="% Acum", yaxis="y2", line=dict(color="#e07a5f")))
+        fig_p.update_layout(title="<b>[PARETO] Jerarquía Final</b>", yaxis2=dict(overlaying="y", side="right", range=[0,110]))
         st.plotly_chart(fig_p, use_container_width=True)
 
     st.caption("Reporte bajo nomenclatura NIIF para la transparencia en Capital Humano.")
 
 else:
-    st.info("Por favor, cargue su archivo de datos para iniciar la auditoría de equidad.")
+    st.info("Suba su archivo para iniciar la auditoría.")
