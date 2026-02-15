@@ -3,23 +3,29 @@
     st.header("IV. Análisis de Variables Independientes (Pareto)")
 
     # 1. Preparación de datos para Pareto Global
-    # Calculamos la importancia promedio combinada de la IA para todas las variables
+    # Promediamos la importancia de IA de ambos géneros para obtener el peso real de la variable
     imp_global = pd.concat([imp_m, imp_h]).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
-    imp_global['Peso_Acumulado'] = imp_global['Peso'].cumsum() / imp_global['Peso'].sum() * 100
+    imp_global['Peso_Acumulado'] = (imp_global['Peso'].cumsum() / imp_global['Peso'].sum()) * 100
 
-    # Gráfico de Pareto (Impacto de Variables Independientes)
+    # Gráfico de Pareto
     fig_pareto = go.Figure()
 
     # Barras: Impacto Individual
     fig_pareto.add_trace(go.Bar(
-        x=imp_global['Factor'], y=imp_global['Peso'],
-        name="Impacto Individual", marker_color='#3d5a80'
+        x=imp_global['Factor'], 
+        y=imp_global['Peso'],
+        name="Impacto Individual", 
+        marker_color='#3d5a80'
     ))
 
     # Línea: Porcentaje Acumulado
     fig_pareto.add_trace(go.Scatter(
-        x=imp_global['Factor'], y=imp_global['Peso_Acumulado'],
-        name=" % Acumulado", yaxis="y2", line=dict(color="#e07a5f", width=3), marker=dict(size=8)
+        x=imp_global['Factor'], 
+        y=imp_global['Peso_Acumulado'],
+        name="% Acumulado", 
+        yaxis="y2", 
+        line=dict(color="#e07a5f", width=3), 
+        marker=dict(size=8)
     ))
 
     fig_pareto.update_layout(
@@ -34,10 +40,9 @@
     # 2. Comparativa de Variables Independientes Clave (Doble Estándar)
     st.subheader("Análisis Comparativo de Competencias")
     
-    # Seleccionamos variables independientes críticas para comparar
     vars_criticas = ['international_exp', 'entrepeneur_exp', 'programming_exp', 'add_languages']
     
-    # Creamos un resumen de promedios por género solo para los contratados
+    # Resumen de promedios por género solo para los contratados
     df_comp_indep = df_solo_contratados.groupby('gender')[vars_criticas].mean().reset_index()
     df_comp_melted = df_comp_indep.melt(id_vars='gender', var_name='Variable', value_name='Promedio')
 
@@ -50,6 +55,3 @@
     
     fig_indep.update_layout(yaxis_title="Proporción / Promedio de la Variable")
     st.plotly_chart(fig_indep, use_container_width=True)
-
-    # Nota de Auditoría NIIF
-    st.caption("Nota: Los valores representan la probabilidad de presencia de la competencia en el personal contratado bajo criterios de uniformidad NIIF.")
