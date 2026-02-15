@@ -46,7 +46,7 @@ if archivo:
     df_filtrado = df[(df['hiring_decision'].isin(hiring_values)) & (df['gender'].isin(opciones_genero))].copy()
     colores_dict = {'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}
 
-    # --- SECCIÓN I: DIAGNÓSTICO INTEGRAL ---
+    # --- SECCIÓN I: DIAGNÓSTICO INTEGRAL (CONSOLIDADO) ---
     st.header("I. Diagnóstico de Embudo y Calidad del Talento")
     c1, c2, c3 = st.columns([1.2, 1, 1.2])
     
@@ -75,7 +75,7 @@ if archivo:
                     fig_radar.add_trace(go.Scatterpolar(r=valores, theta=[c.upper() for c in comp_p + [comp_p[0]]], fill='toself', name=g.capitalize(), line=dict(color=colores_dict.get(g, '#888'))))
             st.plotly_chart(fig_radar.update_layout(title="<b>3. Perfil de Habilidades</b>"), use_container_width=True)
 
-    # --- SECCIÓN II: CRITERIOS DE SELECCIÓN (DOBLE MAPA DE CALOR) ---
+    # --- SECCIÓN II: CRITERIOS DE SELECCIÓN (MAPA ORIGINAL + MAPA CUADRADO) ---
     st.divider()
     st.header("II. Criterios de Selección: Análisis de Correlación")
     
@@ -83,47 +83,54 @@ if archivo:
     full_cols = cols_corr + ['hiring_decision']
     matriz = df_filtrado[full_cols].corr()
     
+    # Escala: Celeste (-1), Amarillo (0), Verde (+1)
     custom_colorscale = [
-        [0.0, "rgb(173, 216, 230)"],  # -1 Celeste
-        [0.5, "rgb(255, 255, 0)"],    # 0 Amarillo
-        [1.0, "rgb(0, 128, 0)"]       # +1 Verde
+        [0.0, "rgb(173, 216, 230)"],  # -1
+        [0.5, "rgb(255, 255, 0)"],    # 0
+        [1.0, "rgb(0, 128, 0)"]       # +1
     ]
 
-    col_mapa_full, col_mapa_hiring = st.columns([1.5, 0.6])
+    col_mapa_orig, col_mapa_sq = st.columns([1.4, 1])
 
-    with col_mapa_full:
-        # 4. Mapa de Calor Completo
-        fig_corr_full = go.Figure(data=go.Heatmap(
-            z=matriz.loc[cols_corr, cols_corr],
-            x=cols_corr, y=cols_corr,
-            colorscale=custom_colorscale, zmin=-1, zmax=1,
-            text=matriz.loc[cols_corr, cols_corr].round(2),
-            texttemplate="%{text}", showscale=False
-        ))
-        fig_corr_full.update_layout(title="<b>4. Interrelación de Variables</b>", height=550, template="plotly_white")
-        st.plotly_chart(fig_corr_full, use_container_width=True)
-
-    with col_mapa_hiring:
-        # 5. Mapa de Calor de Éxito (Termómetro de Contratación)
-        correlacion_hiring = matriz[['hiring_decision']].drop('hiring_decision', axis=0).sort_values(by='hiring_decision', ascending=False)
+    with col_mapa_orig:
+        # 4. Mapa de Calor Original (con separación)
+        fig_orig = make_subplots(rows=2, cols=1, row_heights=[0.75, 0.25], vertical_spacing=0.12, shared_xaxes=True)
         
-        fig_hiring_heat = go.Figure(data=go.Heatmap(
-            z=correlacion_hiring.values,
-            x=['Decisión Final'],
-            y=correlacion_hiring.index,
-            colorscale=custom_colorscale, zmin=-1, zmax=1,
-            text=correlacion_hiring.values.round(2),
-            texttemplate="%{text}",
-            colorbar=dict(title="Correlación")
-        ))
-        fig_hiring_heat.update_layout(title="<b>5. Correlación con Éxito</b>", height=550, template="plotly_white")
-        st.plotly_chart(fig_hiring_heat, use_container_width=True)
+        # Bloque principal
+        fig_orig.add_trace(go.Heatmap(z=matriz.loc[cols_corr, cols_corr], x=cols_corr, y=cols_corr, 
+                                      colorscale=custom_colorscale, zmin=-1, zmax=1, 
+                                      text=matriz.loc[cols_corr, cols_corr].round(2), 
+                                      texttemplate="%{text}", showscale=False), row=1, col=1)
+        # Fila separada
+        fig_orig.add_trace(go.Heatmap(z=[matriz.loc['hiring_decision', cols_corr].values], x=cols_corr, y=['hiring_decision'], 
+                                      colorscale=custom_colorscale, zmin=-1, zmax=1, 
+                                      text=[matriz.loc['hiring_decision', cols_corr].round(2).values], 
+                                      texttemplate="%{text}"), row=2, col=1)
 
-    # --- SECCIÓN III: DRIVERS REALES DE CONTRATACIÓN ---
+        fig_orig.update_layout(height=600, title_text="<b>4. Mapa de Calor de Auditoría (Original)</b>", template="plotly_white")
+        st.plotly_chart(fig_orig, use_container_width=True)
+
+    with col_mapa_sq:
+        # 5. Mapa de Calor en Cuadrado (Correlación Directa resumida)
+        # Presentamos la relación con Hiring Decision de forma compacta y cuadrada
+        cor_hiring = matriz[['hiring_decision']].drop('hiring_decision').sort_values(by='hiring_decision', ascending=False)
+        
+        fig_sq = go.Figure(data=go.Heatmap(
+            z=cor_hiring.values,
+            x=['Impacto en Contratación'],
+            y=cor_hiring.index,
+            colorscale=custom_colorscale, zmin=-1, zmax=1,
+            text=cor_hiring.values.round(2),
+            texttemplate="%{text}",
+            colorbar=dict(title="Nivel")
+        ))
+        # Ajustamos para que se vea más "cuadrado"
+        fig_sq.update_layout(height=600, width=400, title_text="<b>5. Resumen de Éxito (Cuadrado)</b>", template="plotly_white")
+        st.plotly_chart(fig_sq, use_container_width=True)
+
+    # --- SECCIÓN III: DRIVERS REALES ---
     st.divider()
-    st.header("III. Jerarquía de Factores Determinantes")
-    st.info("💡 Este análisis identifica qué variables influyen realmente en el resultado final, aislando el impacto del score subjetivo.")
-    
+    st.header("III. Drivers Reales de Contratación")
     vars_ia = [v for v in variables_raiz if v != 'score' and v in df.columns]
     
     def get_imp(gen):
@@ -143,7 +150,7 @@ if archivo:
             if g in imps and imps[g] is not None:
                 s = imps[g].set_index('Factor').reindex(g_imp['Factor'].tolist()[::-1]).reset_index().fillna(0)
                 fig_imp.add_trace(go.Bar(y=s['Factor'], x=s['Peso'], name=g.capitalize(), orientation='h', marker_color=colores_dict.get(g)))
-        st.plotly_chart(fig_imp.update_layout(title="<b>6. Peso Relativo de los Atributos</b>", barmode='group', height=500), use_container_width=True)
+        st.plotly_chart(fig_imp.update_layout(title="<b>6. Jerarquía de Factores Determinantes</b>", barmode='group', height=500), use_container_width=True)
 
     # --- SECCIÓN IV: ANÁLISIS DE VARIABLES ---
     st.divider()
@@ -159,4 +166,4 @@ if archivo:
                         st.plotly_chart(px.histogram(df_filtrado, x=v, color='gender', barmode='group', title=f"Distribución: {v.upper()}", color_discrete_map=colores_dict, text_auto=True), use_container_width=True)
 
 else:
-    st.info("🚀 CSO: Cargue el archivo para generar la Auditoría Estratégica Completa.")
+    st.info("🚀 CSO: Cargue el archivo para activar el análisis dinámico.")
