@@ -24,10 +24,9 @@ if archivo:
     variables_raiz = ['age', 'sport', 'score', 'international_exp', 'entrepeneur_exp', 
                       'debateclub', 'programming_exp', 'add_languages', 'relevance_of_studies', 'squad']
 
-    # --- SECCIÓN I: ENCABEZADO ESTRATÉGICO (LOS GRÁFICOS QUE NO QUEREMOS PERDER) ---
+    # --- SECCIÓN I: DIAGNÓSTICO ESTRATÉGICO ---
     st.header("I. Diagnóstico de Embudo y Sesgos")
     
-    # 1. Gráfico de Barras: Embudo
     df_post = df['gender'].value_counts().reset_index(name='cantidad').assign(estado='Postulantes')
     df_cont = df[df['hiring_decision'] == 1]['gender'].value_counts().reset_index(name='cantidad').assign(estado='Contratados')
     df_embudo = pd.concat([df_post, df_cont])
@@ -40,13 +39,11 @@ if archivo:
     df_solo_contratados = df[df['hiring_decision'] == 1]
 
     with col1:
-        # 2. Gráfico de Torta: Composición
         st.plotly_chart(px.pie(df_solo_contratados, names='gender', hole=0.4, 
                                title="<b>2. [GRÁFICO DE TORTA] Distribución de Contratados</b>",
                                color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}), use_container_width=True)
 
     with col2:
-        # 3. Gráfico de Caja: Exigencia
         st.plotly_chart(px.box(df_solo_contratados, x='gender', y='score', color='gender', 
                               title="<b>3. [GRÁFICO DE CAJA] Nivel de Exigencia (Scores)</b>",
                               color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'}), use_container_width=True)
@@ -64,9 +61,9 @@ if archivo:
 
     imp_m, imp_h, imp_o = obtener_importancia('female'), obtener_importancia('male'), obtener_importancia('other')
 
-    # --- 4. IMPORTANCIA COMPARATIVA (ORDENADA) ---
+    # --- II. IMPORTANCIA COMPARATIVA ---
     st.divider()
-    st.header("II. Análisis de Importancia de Variables (IA)")
+    st.header("II. Análisis de Importancia de Variables (Orden Mayor a Menor)")
     if imp_h is not None:
         orden_ref = imp_h.sort_values('Peso', ascending=True)['Factor'].tolist()
         fig_imp = go.Figure()
@@ -77,11 +74,10 @@ if archivo:
         if imp_o is not None:
             o_s = imp_o.set_index('Factor').reindex(orden_ref).reset_index().fillna(0)
             fig_imp.add_trace(go.Bar(y=o_s['Factor'], x=o_s['Peso'], name='Otros', orientation='h', marker_color='#98c1d9'))
-        
-        fig_imp.update_layout(title="<b>4. [BARRAS AGRUPADAS HORIZONTALES] Criterios de Decisión por Género</b>", barmode='group', height=500)
+        fig_imp.update_layout(title="<b>4. [BARRAS AGRUPADAS] Importancia de Variables IA</b>", barmode='group', height=500)
         st.plotly_chart(fig_imp, use_container_width=True)
 
-    # --- SECCIÓN III: RADIOGRAFÍAS INDIVIDUALES ---
+    # --- SECCIÓN III: RADIOGRAFÍAS INDIVIDUALES CON ESTADÍSTICAS ---
     st.divider()
     st.header("III. Radiografía de Perfiles de Éxito (Individual)")
     tab_m, tab_h, tab_o = st.tabs(["🚺 Mujeres", "🚹 Hombres", "⚧ Otros"])
@@ -92,9 +88,13 @@ if archivo:
                 df_exito = datos_gen[datos_gen['hiring_decision']==1]
                 for _, fila in resumen.sort_values('Peso', ascending=False).iterrows():
                     var, peso = fila['Factor'], fila['Peso']
-                    tipo = "[HISTOGRAMA]" if var in ['age', 'score', 'add_languages'] else "[GRÁFICO DE BARRAS]"
-                    fig = px.histogram(df_exito, x=var, title=f"{tipo} Variable: {var} (Impacto: {peso:.1%})",
-                                       color_discrete_sequence=[color], text_auto=True)
+                    if var in ['age', 'score', 'add_languages']:
+                        v_min, v_max, v_mean = df_exito[var].min(), df_exito[var].max(), df_exito[var].mean()
+                        titulo = f"[HISTOGRAMA] {var} | Media: {v_mean:.2f} | Min: {v_min} | Max: {v_max}"
+                        fig = px.histogram(df_exito, x=var, title=titulo, color_discrete_sequence=[color], text_auto=True)
+                    else:
+                        fig = px.histogram(df_exito, x=var, title=f"[GRÁFICO DE BARRAS] {var} (Impacto: {peso:.1%})",
+                                           color_discrete_sequence=[color], text_auto=True)
                     st.plotly_chart(fig, use_container_width=True)
             else: st.warning("Datos insuficientes.")
 
@@ -102,33 +102,37 @@ if archivo:
     render_perfil(imp_h, df[df['gender']=='male'], '#3d5a80', tab_h)
     render_perfil(imp_o, df[df['gender']=='other'], '#98c1d9', tab_o)
 
-    # --- SECCIÓN IV: MEZCLA Y COMPARATIVA UNIFICADA (PARETO ORDEN) ---
+    # --- SECCIÓN IV: MEZCLA Y COMPARATIVA CON ESTADÍSTICAS ---
     st.divider()
-    st.header("IV. Relación y Mezcla de Variables (Todas las Independientes)")
+    st.header("IV. Relación y Mezcla Multivariable (Orden de Impacto)")
     
     list_imps = [i for i in [imp_m, imp_h, imp_o] if i is not None]
     if list_imps:
         imp_global = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
         
         for var in imp_global['Factor']:
+            # Cálculo de estadísticas globales por género para el título
+            stats = df_solo_contratados.groupby('gender')[var].agg(['mean', 'min', 'max']).reset_index()
+            resumen_stats = " | ".join([f"{r.gender}: μ={r['mean']:.1f}" for r in stats.itertuples()])
+            
             fig_mix = px.histogram(df_solo_contratados, x=var, color='gender', barmode='group',
-                                   title=f"<b>[GRÁFICO DE BARRAS AGRUPADAS] Relación Multivariable: {var}</b>",
+                                   title=f"<b>[GRÁFICO DE BARRAS AGRUPADAS] {var.upper()}</b> <br><sup>{resumen_stats}</sup>",
                                    color_discrete_map={'female': '#e07a5f', 'male': '#3d5a80', 'other': '#98c1d9'},
                                    text_auto=True)
             st.plotly_chart(fig_mix, use_container_width=True)
 
-    # --- SECCIÓN V: PARETO FINAL ---
+    # --- SECCIÓN V: PARETO ---
     st.divider()
     st.header("V. Análisis de Pareto Global")
     if list_imps:
         imp_global['Peso_Acum'] = (imp_global['Peso'].cumsum() / imp_global['Peso'].sum()) * 100
         fig_p = go.Figure()
-        fig_p.add_trace(go.Bar(x=imp_global['Factor'], y=imp_global['Peso'], name="Impacto Individual", marker_color='#3d5a80'))
-        fig_p.add_trace(go.Scatter(x=imp_global['Factor'], y=imp_global['Peso_Acum'], name="% Acumulado", yaxis="y2", line=dict(color="#e07a5f")))
-        fig_p.update_layout(title="<b>[PARETO] Jerarquía de Decisión de Contratación</b>", yaxis2=dict(overlaying="y", side="right", range=[0,110]))
+        fig_p.add_trace(go.Bar(x=imp_global['Factor'], y=imp_global['Peso'], name="Impacto", marker_color='#3d5a80'))
+        fig_p.add_trace(go.Scatter(x=imp_global['Factor'], y=imp_global['Peso_Acum'], name="% Acum", yaxis="y2", line=dict(color="#e07a5f")))
+        fig_p.update_layout(title="<b>[PARETO] Jerarquía de Decisión</b>", yaxis2=dict(overlaying="y", side="right", range=[0,110]))
         st.plotly_chart(fig_p, use_container_width=True)
 
     st.caption("Reporte bajo nomenclatura NIIF para la transparencia en Capital Humano.")
 
 else:
-    st.info("Suba su archivo para generar el tablero integral de auditoría.")
+    st.info("Cargue su archivo para iniciar la auditoría.")
