@@ -18,11 +18,17 @@ if archivo:
         df = pd.read_excel(archivo)
     
     df.columns = df.columns.str.lower().str.strip()
-    if 'hiring_decision' in df.columns:
-        df['hiring_decision'] = df['hiring_decision'].astype(int)
-
+    
+    # Limpieza: Asegurar que las variables raíz sean numéricas para evitar el TypeError
     variables_raiz = ['age', 'sport', 'score', 'international_exp', 'entrepeneur_exp', 
                       'debateclub', 'programming_exp', 'add_languages', 'relevance_of_studies', 'squad']
+    
+    for col in variables_raiz:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    if 'hiring_decision' in df.columns:
+        df['hiring_decision'] = pd.to_numeric(df['hiring_decision'], errors='coerce').fillna(0).astype(int)
 
     # --- SECCIÓN I: DIAGNÓSTICO ESTRATÉGICO ---
     st.header("I. Diagnóstico de Embudo y Sesgos")
@@ -36,7 +42,7 @@ if archivo:
                            color_discrete_map={'Postulantes': '#9cacaf', 'Contratados': '#3d5a80'}, text_auto=True), use_container_width=True)
 
     col1, col2 = st.columns(2)
-    df_solo_contratados = df[df['hiring_decision'] == 1]
+    df_solo_contratados = df[df['hiring_decision'] == 1].copy()
 
     with col1:
         st.plotly_chart(px.pie(df_solo_contratados, names='gender', hole=0.4, 
@@ -50,13 +56,14 @@ if archivo:
 
     # --- FUNCIÓN DE IMPORTANCIA IA ---
     def obtener_importancia(gen):
-        datos_gen = df[df['gender'] == gen].copy()
+        datos_gen = df[df['gender'] == gen].dropna(subset=['hiring_decision']).copy()
         if len(datos_gen) < 5 or datos_gen['hiring_decision'].nunique() < 2: return None
-        cols = [c for c in variables_raiz if c in datos_gen.columns]
-        X = pd.get_dummies(datos_gen[cols], drop_first=True)
+        cols_presentes = [c for c in variables_raiz if c in datos_gen.columns]
+        X = datos_gen[cols_presentes].fillna(0)
+        X = pd.get_dummies(X, drop_first=True)
         model = RandomForestClassifier(n_estimators=100, random_state=42).fit(X, datos_gen['hiring_decision'])
         res = pd.DataFrame({'v': X.columns, 'p': model.feature_importances_})
-        res['Factor'] = res['v'].apply(lambda x: next((f for f in cols if x.startswith(f)), x))
+        res['Factor'] = res['v'].apply(lambda x: next((f for f in cols_presentes if x.startswith(f)), x))
         return res.groupby('Factor')['p'].sum().reset_index(name='Peso')
 
     imp_m, imp_h, imp_o = obtener_importancia('female'), obtener_importancia('male'), obtener_importancia('other')
@@ -67,7 +74,7 @@ if archivo:
     
     list_imps = [i for i in [imp_m, imp_h, imp_o] if i is not None]
     if list_imps:
-        # Calculamos el orden global para que el eje Y esté ordenado de mayor a menor
+        # El orden global se calcula para que la variable más importante aparezca arriba (descendente)
         orden_desc = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=True).reset_index()
         lista_ordenada = orden_desc['Factor'].tolist()
 
@@ -82,7 +89,7 @@ if archivo:
             o_s = imp_o.set_index('Factor').reindex(lista_ordenada).reset_index().fillna(0)
             fig_imp.add_trace(go.Bar(y=o_s['Factor'], x=o_s['Peso'], name='Otros', orientation='h', marker_color='#98c1d9'))
         
-        fig_imp.update_layout(title="<b>4. [BARRAS AGRUPADAS] Importancia IA (Ordenada)</b>", barmode='group', height=600)
+        fig_imp.update_layout(title="<b>4. [BARRAS AGRUPADAS] Importancia IA (Jerarquía Técnica)</b>", barmode='group', height=600)
         st.plotly_chart(fig_imp, use_container_width=True)
 
     # --- SECCIÓN III: RADIOGRAFÍAS INDIVIDUALES ---
@@ -93,17 +100,20 @@ if archivo:
     def render_perfil(resumen, datos_gen, color, tab):
         with tab:
             if resumen is not None:
-                df_exito = datos_gen[datos_gen['hiring_decision']==1]
-                resumen_ordenado = resumen.sort_values('Peso', ascending=False)
-                for _, fila in resumen_ordenado.iterrows():
+                df_exito = datos_gen[datos_gen['hiring_decision']==1].copy()
+                res_ord = resumen.sort_values('Peso', ascending=False)
+                for _, fila in res_ord.iterrows():
                     var, peso = fila['Factor'], fila['Peso']
-                    if var in ['age', 'score', 'add_languages']:
-                        v_min, v_max, v_mean = df_exito[var].min(), df_exito[var].max(), df_exito[var].mean()
+                    # Verificamos si es numérica para sacar estadísticas
+                    if pd.api.types.is_numeric_dtype(df_exito[var]):
+                        v_min = df_exito[var].min()
+                        v_max = df_exito[var].max()
+                        v_mean = df_exito[var].mean()
                         titulo = f"[HISTOGRAMA] {var.upper()} | Media: {v_mean:.1f} | Min: {v_min} | Max: {v_max}"
-                        fig = px.histogram(df_exito, x=var, title=titulo, color_discrete_sequence=[color], text_auto=True)
                     else:
-                        fig = px.histogram(df_exito, x=var, title=f"[GRÁFICO DE BARRAS] {var.upper()} (Importancia: {peso:.1%})",
-                                           color_discrete_sequence=[color], text_auto=True)
+                        titulo = f"[GRÁFICO DE BARRAS] {var.upper()} (Importancia: {peso:.1%})"
+                    
+                    fig = px.histogram(df_exito, x=var, title=titulo, color_discrete_sequence=[color], text_auto=True)
                     st.plotly_chart(fig, use_container_width=True)
             else: st.warning("Datos insuficientes.")
 
@@ -111,19 +121,20 @@ if archivo:
     render_perfil(imp_h, df[df['gender']=='male'], '#3d5a80', tab_h)
     render_perfil(imp_o, df[df['gender']=='other'], '#98c1d9', tab_o)
 
-    # --- SECCIÓN IV: MEZCLA MULTIVARIABLE (ORDENADA Y CORREGIDA) ---
+    # --- SECCIÓN IV: MEZCLA MULTIVARIABLE (ORDENADA Y PROTEGIDA) ---
     st.divider()
     st.header("IV. Relación y Mezcla Multivariable (Orden Mayor a Menor)")
     
     if list_imps:
-        # Orden descendente global
         imp_glob_desc = pd.concat(list_imps).groupby('Factor')['Peso'].mean().sort_values(ascending=False).reset_index()
         
         for var in imp_glob_desc['Factor']:
-            # Cálculo corregido para evitar el TypeError de la imagen
-            stats = df_solo_contratados.groupby('gender')[var].agg(['mean', 'min', 'max']).reset_index()
-            # Acceso correcto a los atributos del objeto itertuples
-            resumen_stats = " | ".join([f"{r.gender}: μ={getattr(r, 'mean'):.1f}" for r in stats.itertuples()])
+            # Agregación protegida contra tipos no numéricos
+            if pd.api.types.is_numeric_dtype(df_solo_contratados[var]):
+                stats = df_solo_contratados.groupby('gender')[var].agg(['mean', 'min', 'max']).reset_index()
+                resumen_stats = " | ".join([f"{r.gender}: μ={getattr(r, 'mean'):.1f}" for r in stats.itertuples()])
+            else:
+                resumen_stats = "Variable Categórica"
             
             fig_mix = px.histogram(df_solo_contratados, x=var, color='gender', barmode='group',
                                    title=f"<b>[BARRAS AGRUPADAS] {var.upper()}</b> <br><sup>{resumen_stats}</sup>",
@@ -145,4 +156,4 @@ if archivo:
     st.caption("Reporte bajo nomenclatura NIIF para la transparencia en Capital Humano.")
 
 else:
-    st.info("Suba su archivo para generar el reporte completo.")
+    st.info("Por favor, cargue su archivo de datos para iniciar la auditoría de equidad.")
