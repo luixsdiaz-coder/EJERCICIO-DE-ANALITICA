@@ -72,29 +72,36 @@ if archivo:
                     fig_radar.add_trace(go.Scatterpolar(r=valores, theta=[c.upper() for c in comp_p + [comp_p[0]]], fill='toself', name=g.capitalize(), line=dict(color=colores_dict.get(g, '#888'))))
             st.plotly_chart(fig_radar.update_layout(title="<b>3. Perfil de Habilidades</b>"), use_container_width=True)
 
-    # --- SECCIÓN II: MAPA DE CALOR (ESTILO AUDITORÍA) ---
+    # --- SECCIÓN II: MAPA DE CALOR (ESTILO AUDITORÍA CON COLORES PERSONALIZADOS) ---
     st.divider()
     st.header("II. Criterios de Selección: Mapa de Calor")
     
-    # Preparamos los datos de correlación
     cols_corr = [c for c in variables_raiz if c in df.columns]
     full_cols = cols_corr + ['hiring_decision']
     matriz = df_filtrado[full_cols].corr()
     
-    # Creamos subplots para separar la fila de 'hiring_decision'
+    # Definición de la escala: -1: Celeste, 0: Amarillo, 1: Verde
+    custom_colorscale = [
+        [0.0, "rgb(173, 216, 230)"],  # -1 (Light Blue)
+        [0.5, "rgb(255, 255, 0)"],    #  0 (Yellow)
+        [1.0, "rgb(0, 128, 0)"]       # +1 (Green)
+    ]
+
     fig_corr = make_subplots(rows=2, cols=1, row_heights=[0.8, 0.2], vertical_spacing=0.1, shared_xaxes=True)
 
-    # Bloque principal de variables
+    # Bloque principal
     fig_corr.add_trace(go.Heatmap(z=matriz.loc[cols_corr, cols_corr], x=cols_corr, y=cols_corr, 
-                                  colorscale='RdBu_r', zmin=-1, zmax=1, text=matriz.loc[cols_corr, cols_corr].round(2), 
+                                  colorscale=custom_colorscale, zmin=-1, zmax=1, 
+                                  text=matriz.loc[cols_corr, cols_corr].round(2), 
                                   texttemplate="%{text}", showscale=False), row=1, col=1)
 
     # Fila separada: hiring_decision
     fig_corr.add_trace(go.Heatmap(z=[matriz.loc['hiring_decision', cols_corr].values], x=cols_corr, y=['hiring_decision'], 
-                                  colorscale='RdBu_r', zmin=-1, zmax=1, text=[matriz.loc['hiring_decision', cols_corr].round(2).values], 
+                                  colorscale=custom_colorscale, zmin=-1, zmax=1, 
+                                  text=[matriz.loc['hiring_decision', cols_corr].round(2).values], 
                                   texttemplate="%{text}"), row=2, col=1)
 
-    fig_corr.update_layout(height=650, title_text="<b>4. Análisis de Correlación: Variables vs Decisión Final</b>", template="plotly_white")
+    fig_corr.update_layout(height=650, title_text="<b>4. Análisis de Correlación (Celeste: Negativa | Amarillo: Nula | Verde: Positiva)</b>", template="plotly_white")
     st.plotly_chart(fig_corr, use_container_width=True)
 
     # --- SECCIÓN III: DRIVERS REALES ---
@@ -137,4 +144,4 @@ if archivo:
                         st.plotly_chart(px.histogram(df_filtrado, x=v, color='gender', barmode='group', title=f"Distribución: {v.upper()}", color_discrete_map=colores_dict, text_auto=True), use_container_width=True)
 
 else:
-    st.info("🚀 CSO: Cargue el archivo para activar el análisis estratégico.")
+    st.info("🚀 CSO: Cargue el archivo para activar el análisis estratégico con la nueva escala de colores.")
